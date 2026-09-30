@@ -1,0 +1,97 @@
+# =============================================================================
+# Weather Data Platform: pipeline configuration
+# -----------------------------------------------------------------------------
+# This is the ONLY file that needs to change to add a city, move the analysis
+# window, or swap LLM models. Nothing in here is duplicated in SQL or Python.
+# Values can be overridden by environment variables (see .env.example).
+# =============================================================================
+
+source:
+  base_url: https://www.ncei.noaa.gov/pub/data/ghcn/daily
+  # Reference files: the readme is the data dictionary. Fixed-width layouts,
+  # element units/scales and flag definitions are all parsed from it.
+  metadata_files:
+    readme: readme.txt
+    stations: ghcnd-stations.txt
+    inventory: ghcnd-inventory.txt
+    countries: ghcnd-countries.txt
+  observations_path_template: by_station/{station_id}.csv.gz
+  http_timeout_seconds: 120
+  max_retries: 4
+
+# -----------------------------------------------------------------------------
+# Target stations.
+# Each entry is EITHER a pinned `station_id` (deterministic, auditable) OR a
+# `match` rule resolved against ghcnd-stations.txt + ghcnd-inventory.txt
+# (picks the station in the region with the most recent core-element coverage).
+# Every entry is validated against the metadata before anything is downloaded.
+# -----------------------------------------------------------------------------
+stations:
+  - city: Toronto
+    station_id: CA006158731   # TORONTO INTL A (Pearson)
+  - city: Montreal
+    station_id: CA007025251   # MONTREAL INTL A (Trudeau)
+  - city: Vancouver
+    station_id: CA001108395   # VANCOUVER INTL A (YVR)
+  - city: Calgary
+    station_id: CA003031092   # CALGARY INTL A (YYC)
+  - city: Ottawa
+    station_id: CA006106001   # OTTAWA INT'L (Macdonald-Cartier)
+
+  # Adding a 6th city is a config-only change, e.g.:
+  # - city: Edmonton
+  #   match:
+  #     country_code: CA
+  #     state: AB
+  #     name_pattern: "EDMONTON INT*"
+
+# -----------------------------------------------------------------------------
+# Analysis window: resolved from the data, not hardcoded dates.
+#   anchor: latest_common -> end = the latest date that ALL target stations have
+#                            reported (so every city covers the same period)
+#           latest_any    -> end = the latest date ANY target station reported
+#           fixed         -> end = end_date (below)
+# -----------------------------------------------------------------------------
+analysis_window:
+  anchor: latest_common
+  lookback_days: 730
+  # end_date: 2024-04-28   # only used when anchor == fixed
+
+# -----------------------------------------------------------------------------
+# Element selection. The candidate set comes from ghcnd-inventory.txt (what
+# each station actually reports, overlapping the window). These are policy
+# filters on top of it, as glob patterns, not a list of what exists.
+# -----------------------------------------------------------------------------
+elements:
+  include: ["*"]
+  exclude: []            # e.g. ["WT*", "WV*"] to drop weather-type flags
+
+quality:
+  # GHCN QFLAG values that invalidate an observation. "*" = any non-blank flag.
+  rejected_qflags: ["*"]
+  # Completeness below this (per station/element/month) is reported as a warning,
+  # for these element categories (event-based series like snow depth are sparse by nature).
+  min_completeness_pct: 80
+  completeness_monitored_categories: [temperature, precipitation]
+  # A station whose latest observation is older than this is flagged as stale.
+  staleness_threshold_days: 45
+  # Incremental dbt models re-process this many trailing days on each run,
+  # because NOAA revises recent values and quality flags after publication.
+  incremental_lookback_days: 30
+
+narratives:
+  provider: gemini          # gemini | fake (offline, deterministic; used in CI)
+  model: gemini-3.5-flash-lite
+  prompt_version: v1
+  temperature: 0.2
+  # Bulk strategy: many station-days per request with a strict JSON schema.
+  # Keeps a 2-year x 5-station backfill (~3.6k narratives) inside free-tier quotas.
+  batch_size: 40
+  requests_per_minute: 10
+  max_requests_per_run: 150
+  # Restrict generation to the most recent N days of the window (null = full window).
+  last_n_days: null
+
+warehouse:
+  duckdb_path: data/warehouse/weather.duckdb
+  landing_dir: data/landing
