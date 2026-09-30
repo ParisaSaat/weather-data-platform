@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Secrets
+.env
+
+# Pipeline outputs (fully reproducible from source)
+data/
+*.duckdb
+*.duckdb.wal
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+logs/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# dbt local user file
+dbt/.user.yml
