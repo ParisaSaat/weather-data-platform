@@ -1,0 +1,150 @@
+version: 2
+
+models:
+  - name: dim_stations
+    description: One row per configured station, with metadata, coverage and staleness.
+    config:
+      contract:
+        enforced: true
+    data_tests:
+      - dbt_utils.expression_is_true:
+          name: station_is_reporting_recently
+          description: Lists stations whose latest observation is older than the staleness threshold.
+          arguments:
+            expression: "not is_stale"
+          config:
+            severity: warn
+    columns:
+      - name: station_id
+        data_type: varchar
+        constraints: [{type: not_null}, {type: primary_key}]
+        data_tests: [unique, not_null]
+      - name: city
+        data_type: varchar
+        data_tests: [unique, not_null]
+      - name: station_name
+        data_type: varchar
+      - name: state_code
+        data_type: varchar
+      - name: country_code
+        data_type: varchar
+      - name: country_name
+        data_type: varchar
+      - name: latitude
+        data_type: double
+      - name: longitude
+        data_type: double
+      - name: elevation_m
+        data_type: double
+      - name: wmo_id
+        data_type: varchar
+      - name: resolution_method
+        data_type: varchar
+      - name: inventory_first_year
+        data_type: integer
+      - name: inventory_last_year
+        data_type: integer
+      - name: first_observation_date
+        data_type: date
+      - name: last_observation_date
+        data_type: date
+        data_tests: [not_null]
+      - name: days_since_last_observation
+        data_type: bigint
+      - name: is_stale
+        data_type: boolean
+        description: True when the station hasn't reported for more than `staleness_threshold_days`.
+      - name: window_days_with_observations
+        data_type: bigint
+      - name: window_coverage_pct
+        data_type: double
+
+  - name: dim_elements
+    description: Elements in scope (inventory-driven), with units and scale factors parsed from readme.txt.
+    columns:
+      - name: element
+        data_tests: [unique, not_null]
+      - name: unit
+        data_tests:
+          - dbt_utils.expression_is_true:
+              arguments:
+                expression: "<> 'unknown'"
+              config:
+                severity: warn
+
+  - name: fct_daily_observations
+    description: >
+      Long-format daily fact (station x date x element), scaled to physical units.
+      Rows NOAA flagged as failing QA are kept (value) but excluded from value_clean.
+    config:
+      contract:
+        enforced: true
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, observation_date, element]
+    columns:
+      - name: station_id
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_stations')
+                field: station_id
+      - name: observation_date
+        data_type: date
+        constraints: [{type: not_null}]
+      - name: element
+        data_type: varchar
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_elements')
+                field: element
+      - name: element_category
+        data_type: varchar
+      - name: raw_value
+        data_type: integer
+      - name: value
+        data_type: decimal(10, 2)
+      - name: value_clean
+        data_type: decimal(10, 2)
+        description: Scaled value, null when NOAA's QFLAG rejects it (per config `rejected_qflags`).
+        data_tests:
+          - within_plausibility_bounds:
+              arguments:
+                element_column: element
+      - name: unit
+        data_type: varchar
+      - name: measurement_flag
+        data_type: varchar
+      - name: quality_flag
+        data_type: varchar
+      - name: source_flag
+        data_type: varchar
+      - name: is_quality_rejected
+        data_type: boolean
+      - name: is_trace
+        data_type: boolean
+      - name: is_unit_corrected
+        data_type: boolean
+        description: True when a source_unit_corrections row overrode the readme scale factor.
+      - name: ingestion_batch_id
+        data_type: varchar
+      - name: transformed_at
+        data_type: timestamp
+
+  - name: fct_daily_weather
+    description: >
+      Wide daily table on a complete date spine (station x day). Element columns
+      (tmax, tmin, prcp, ...) are generated from the inventory-driven element selection;
+      see dim_elements for their units.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, observation_date]
+    columns:
+      - name: is_missing_day
+        description: True when the station reported nothing at all that day.

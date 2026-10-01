@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: mart_narrative_inputs
+    description: One row per station-day with all clean observations as JSON; input to the LLM pipeline.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, observation_date]
+    columns:
+      - name: input_hash
+        description: md5 of the prompt-relevant inputs. Narratives are regenerated only when it changes.
+        data_tests: [not_null, unique]
+      - name: observation_count
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+
+  - name: rpt_daily_weather_narratives
+    description: Station-day narratives joined to their inputs and validation results (view).
