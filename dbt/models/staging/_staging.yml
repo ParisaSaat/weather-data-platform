@@ -1,0 +1,120 @@
+version: 2
+
+models:
+  - name: stg_ghcnd__daily_observations
+    description: Typed daily observations. Still the element's native integer unit (see stg_ghcnd__elements for scaling).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, observation_date, element]
+    columns:
+      - name: station_id
+        data_tests: [not_null]
+      - name: observation_date
+        description: Parsed from YYYYMMDD. Null here means an unparseable source date.
+        data_tests: [not_null]
+      - name: element
+        data_tests: [not_null]
+      - name: raw_value
+        description: Integer value in native units (-9999 sentinel converted to null).
+      - name: quality_flag
+        description: GHCN QFLAG. Null = passed all NOAA QA checks.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_ghcnd__flag_definitions')
+                field: flag_code
+              config:
+                where: "quality_flag is not null"
+      - name: measurement_flag
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_ghcnd__flag_definitions')
+                field: flag_code
+              config:
+                where: "measurement_flag is not null"
+
+  - name: stg_ghcnd__stations
+    columns:
+      - name: station_id
+        data_tests: [unique, not_null]
+      - name: latitude
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -90
+                max_value: 90
+      - name: longitude
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: -180
+                max_value: 180
+
+  - name: stg_ghcnd__inventory
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [station_id, element]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "first_year <= last_year"
+
+  - name: stg_ghcnd__countries
+    columns:
+      - name: country_code
+        data_tests: [unique, not_null]
+
+  - name: stg_ghcnd__elements
+    description: >
+      Element catalogue parsed from readme.txt with scale factor, display unit and category
+      derived from the documented unit text.
+    columns:
+      - name: element
+        data_tests: [unique, not_null]
+      - name: scale_factor
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0.1, 1.0]
+                quote: false
+      - name: element_category
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [temperature, precipitation, snow, wind, weather_type, other]
+
+  - name: stg_ghcnd__flag_definitions
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [flag_type, flag_code]
+
+  - name: stg_pipeline__target_stations
+    columns:
+      - name: station_id
+        data_tests: [unique, not_null]
+
+unit_tests:
+  - name: test_element_units_are_derived_from_readme_text
+    model: stg_ghcnd__elements
+    given:
+      - input: source('ghcnd', 'ghcnd_elements')
+        rows:
+          - {element: TMAX, description: Maximum temperature, unit_text: tenths of degrees C}
+          - {element: MDTX, description: Multiday maximum temperature, unit_text: tenths of degress C}
+          - {element: PRCP, description: Precipitation, unit_text: tenths of mm}
+          - {element: SNOW, description: Snowfall, unit_text: mm}
+          - {element: WSFG, description: Peak gust wind speed, unit_text: tenths of meters per second}
+          - {element: ASLP, description: Average Sea Level Pressure for the day, unit_text: hPa * 10}
+          - {element: WT16, description: "Weather type: Rain", unit_text: presence flag}
+    expect:
+      rows:
+        - {element: TMAX, scale_factor: 0.1, unit: "°C", element_category: temperature}
+        - {element: MDTX, scale_factor: 0.1, unit: "°C", element_category: temperature}
+        - {element: PRCP, scale_factor: 0.1, unit: mm, element_category: precipitation}
+        - {element: SNOW, scale_factor: 1.0, unit: mm, element_category: snow}
+        - {element: WSFG, scale_factor: 0.1, unit: m/s, element_category: wind}
+        - {element: ASLP, scale_factor: 0.1, unit: hPa, element_category: other}
+        - {element: WT16, scale_factor: 1.0, unit: flag, element_category: weather_type}

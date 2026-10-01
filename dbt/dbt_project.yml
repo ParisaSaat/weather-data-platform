@@ -1,0 +1,51 @@
+name: weather
+version: "1.0.0"
+config-version: 2
+profile: weather
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# ---------------------------------------------------------------------------
+# Runtime parameters. The Python CLI passes these from config/pipeline.yaml via
+# --vars; the defaults below only exist so `dbt build` also works standalone.
+# Target *stations* are not a var: they arrive as data (raw.pipeline_target_stations).
+# ---------------------------------------------------------------------------
+vars:
+  window_anchor: latest_common        # latest_common | latest_any | fixed
+  window_lookback_days: 730
+  window_end_date: null               # required when window_anchor == fixed
+  element_include_patterns: ["*"]
+  element_exclude_patterns: []
+  rejected_qflags: ["*"]              # "*" = any non-blank GHCN quality flag
+  min_completeness_pct: 80
+  completeness_monitored_categories: ["temperature", "precipitation"]
+  staleness_threshold_days: 45
+  incremental_lookback_days: 30
+
+models:
+  weather:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+      data_quality:
+        +schema: data_quality
+
+seeds:
+  weather:
+    +schema: reference
+
+data_tests:
+  weather:
+    +store_failures: true
+    +schema: dq_audit

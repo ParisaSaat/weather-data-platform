@@ -1,0 +1,101 @@
+version: 2
+
+sources:
+  - name: ghcnd
+    description: >
+      NOAA GHCN-Daily files landed by the Python ingestion layer. Values are stored
+      exactly as delivered (strings) plus lineage columns (_batch_id, _loaded_at, _source_file).
+    schema: raw
+    loaded_at_field: _loaded_at
+    config:
+      freshness:
+        warn_after: {count: 7, period: day}
+    tables:
+      - name: ghcnd_daily
+        description: Per-station daily observations (by_station/*.csv.gz), one row per station-date-element.
+        columns:
+          - name: station_id
+            data_tests: [not_null]
+          - name: obs_date
+            data_tests: [not_null]
+          - name: element
+            data_tests: [not_null]
+
+      - name: ghcnd_stations
+        description: ghcnd-stations.txt, sliced with the layout parsed from readme.txt.
+        config:
+          freshness: null
+        columns:
+          - name: id
+            data_tests: [not_null, unique]
+
+      - name: ghcnd_inventory
+        description: ghcnd-inventory.txt; which elements each station reports and for which years.
+        config:
+          freshness: null
+        columns:
+          - name: id
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('ghcnd', 'ghcnd_stations')
+                    field: id
+                  config:
+                    severity: warn
+
+      - name: ghcnd_countries
+        description: ghcnd-countries.txt; FIPS country code to name.
+        config:
+          freshness: null
+        columns:
+          - name: code
+            data_tests: [not_null, unique]
+
+      - name: ghcnd_elements
+        description: Element catalogue (code, description, unit) parsed from readme.txt section III.
+        config:
+          freshness: null
+        columns:
+          - name: element
+            data_tests: [not_null, unique]
+
+      - name: ghcnd_flag_definitions
+        description: Measurement (M), quality (Q) and source (S) flag codes parsed from readme.txt.
+        config:
+          freshness: null
+
+      - name: ghcnd_file_layouts
+        description: Fixed-width column layouts parsed from readme.txt (audit of how files were sliced).
+        config:
+          freshness: null
+
+  - name: pipeline
+    description: Control tables written by the pipeline itself.
+    schema: raw
+    tables:
+      - name: pipeline_target_stations
+        description: >
+          Stations resolved from config/pipeline.yaml (pinned IDs or metadata match rules).
+          This is the ONLY place station selection enters dbt.
+        columns:
+          - name: station_id
+            data_tests:
+              - not_null
+              - unique
+              - relationships:
+                  arguments:
+                    to: source('ghcnd', 'ghcnd_stations')
+                    field: id
+          - name: city
+            data_tests: [not_null, unique]
+
+      - name: ingestion_log
+        description: One row per file download/load attempt, with checksums and HTTP cache validators.
+
+  - name: narratives
+    description: LLM outputs written by the narrative pipeline (tables created by the Python bootstrap).
+    schema: narratives
+    tables:
+      - name: daily_weather_narratives
+      - name: narrative_validations

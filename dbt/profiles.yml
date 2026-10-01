@@ -1,0 +1,8 @@
+weather:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # The CLI sets an absolute path; the default works when running dbt from ./dbt
+      path: "{{ env_var('WEATHER_DUCKDB_PATH', '../data/warehouse/weather.duckdb') }}"
+      threads: 4
