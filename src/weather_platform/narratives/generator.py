@@ -22,7 +22,11 @@ from uuid import uuid4
 
 from weather_platform.narratives.models import GeneratedNarrative, StationDayInput
 from weather_platform.narratives.repository import NarrativeRepository
-from weather_platform.narratives.writers import NarrativeWriter, NarrativeWriterError
+from weather_platform.narratives.writers import (
+    MalformedResponseError,
+    NarrativeWriter,
+    NarrativeWriterError,
+)
 
 log = logging.getLogger(__name__)
 
@@ -144,6 +148,11 @@ class NarrativeGenerator:
                     result = w.write(batch)
                 except NarrativeWriterError:
                     raise
+                except MalformedResponseError:
+                    log.exception("batch response was malformed; continuing with the next batch")
+                    summary.failed += len(batch)
+                    summary.status = "partial"
+                    continue
                 except Exception:  # retries exhausted on a transient error
                     log.exception("batch failed after retries; continuing with the next batch")
                     summary.failed += len(batch)

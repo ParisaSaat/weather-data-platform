@@ -33,7 +33,11 @@ _RETRYABLE_HTTP = {408, 429, 500, 502, 503, 504}
 
 
 class NarrativeWriterError(RuntimeError):
-    """Non-retryable failure (bad key, unknown model, schema violation...)."""
+    """Non-retryable failure that affects every batch (bad key, unknown model...)."""
+
+
+class MalformedResponseError(RuntimeError):
+    """One response didn't match the schema; only that batch is lost."""
 
 
 class NarrativeWriter(Protocol):
@@ -108,7 +112,7 @@ class GeminiNarrativeWriter:
             try:
                 parsed = NarrativeBatch.model_validate_json(response.text or "")
             except ValueError as exc:
-                raise NarrativeWriterError(f"Response did not match schema: {exc}") from exc
+                raise MalformedResponseError(f"Response did not match schema: {exc}") from exc
         usage = response.usage_metadata
         return WriterResult(
             items=parsed.narratives,

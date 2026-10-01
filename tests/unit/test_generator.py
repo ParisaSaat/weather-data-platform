@@ -4,7 +4,11 @@ import pytest
 
 from weather_platform.narratives.generator import NarrativeGenerator, RateLimiter, chunked
 from weather_platform.narratives.models import NarrativeItem, StationDayInput, WriterResult
-from weather_platform.narratives.writers import NarrativeWriterError, TemplateNarrativeWriter
+from weather_platform.narratives.writers import (
+    MalformedResponseError,
+    NarrativeWriterError,
+    TemplateNarrativeWriter,
+)
 
 
 def _inputs(n):
@@ -101,6 +105,15 @@ def test_transient_batch_failure_continues():
     summary = _gen(repo, FlakyWriter(fail_on_call=1)).run()
     assert summary.requests == 2
     assert summary.failed == 4 + 1
+
+
+def test_malformed_response_skips_only_that_batch():
+    repo = FakeRepo(_inputs(8))
+    summary = _gen(repo, FlakyWriter(fail_on_call=1, error=MalformedResponseError)).run()
+    assert summary.requests == 2
+    assert (summary.written, summary.failed, summary.status) == (3, 4 + 1, "partial")
+    [run] = repo.runs.values()
+    assert run["status"] == "partial"
 
 
 def test_fatal_writer_error_aborts_and_records_run():
