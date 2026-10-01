@@ -1,0 +1,29 @@
+# Local Airflow in standalone mode (scheduler + API server + SQLite metadata DB, one container).
+#   cd orchestration/airflow && docker compose up
+#   UI: http://localhost:8080 (admin password is printed in the log on first start)
+#
+# The project is installed into its own virtualenv (/home/airflow/weather-venv), NOT
+# into Airflow's environment: dbt and Airflow pin conflicting dependency ranges.
+services:
+  airflow:
+    image: apache/airflow:3.1.0-python3.12
+    command:
+      - bash
+      - -c
+      - |
+        python -m venv /home/airflow/weather-venv &&
+        /home/airflow/weather-venv/bin/pip install --quiet -e /opt/weather &&
+        airflow db migrate &&
+        airflow pools set duckdb_writer 1 "DuckDB single writer" &&
+        exec airflow standalone
+    ports:
+      - "8080:8080"
+    env_file:
+      - ../../.env
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/weather/orchestration/airflow/dags
+      WEATHER_BIN: /home/airflow/weather-venv/bin/weather
+      WEATHER_PROJECT_DIR: /opt/weather
+    volumes:
+      - ../..:/opt/weather
