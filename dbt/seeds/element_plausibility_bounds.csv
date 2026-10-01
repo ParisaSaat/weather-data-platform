@@ -1,0 +1,10 @@
+element,min_value,max_value,rationale
+TMAX,-60,50,Canadian record range with margin (°C)
+TMIN,-65,40,Canadian record range with margin (°C)
+TAVG,-60,45,Bounded by TMIN/TMAX ranges (°C)
+PRCP,0,400,Daily rainfall; Canadian 24h record is ~490 mm at remote sites (mm)
+SNOW,0,1500,Daily snowfall (mm)
+SNWD,0,5000,Snow depth (mm)
+AWND,0,60,Average daily wind speed (m/s)
+WSFG,0,70,Peak gust speed; Canadian record gust is ~56 m/s / 201 km/h (m/s)
+WDFG,0,360,Wind direction (degrees)

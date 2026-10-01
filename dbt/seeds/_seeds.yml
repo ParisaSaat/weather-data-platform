@@ -1,0 +1,29 @@
+version: 2
+
+seeds:
+  - name: element_plausibility_bounds
+    description: >
+      Domain knowledge, not metadata: physically plausible ranges per element (in scaled
+      units). Primarily a guard against scaling regressions (a TMAX of 289 means the
+      tenths conversion was skipped). Elements without a row are simply not range-checked.
+    config:
+      column_types:
+        min_value: double
+        max_value: double
+    columns:
+      - name: element
+        data_tests: [unique, not_null]
+
+  - name: source_unit_corrections
+    description: >
+      Evidence-backed exceptions to readme.txt units for a specific (element, source flag).
+      Found by profiling raw distributions; each row documents its evidence. The scale factor
+      converts the raw integer to the element's documented canonical unit, so every element
+      keeps ONE unit in the marts regardless of source.
+    config:
+      column_types:
+        scale_factor: double
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [element, source_flag]
