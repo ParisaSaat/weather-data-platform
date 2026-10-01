@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: dbt deps
+        run: cd dbt && uv run dbt deps --profiles-dir .
+      - run: uv run ruff check src tests orchestration
+      - run: uv run ruff format --check src tests orchestration
+      - run: uv run mypy
+      - name: Tests (unit + offline end-to-end with dbt)
+        run: uv run pytest --cov=weather_platform --cov-report=term-missing
+
+  live-smoke:
+    # Real NOAA data, template narratives: proves the published files still parse.
+    name: Live NOAA smoke test
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run weather run --provider fake --narrative-limit 50
