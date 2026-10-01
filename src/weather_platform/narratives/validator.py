@@ -4,6 +4,7 @@ LLM-as-judge is itself unverified, so the primary check is mechanical:
   1. Grounding: every number the narrative states with a unit must match a value in
      the inputs (today, previous day, day-over-day change or diurnal range), after
      unit conversion and allowing for rounding. Unsupported numbers -> FAIL.
+     Fahrenheit values -> FAIL (inputs and prompt are °C only).
   2. Coverage: the high/low temperature should be mentioned when present -> WARN.
   3. Consistency: claiming rain/snow on a day with 0 mm and no weather-type flag -> WARN.
 """
@@ -27,6 +28,13 @@ _UNIT_ALIASES: Final[dict[str, tuple[str, float]]] = {
     "degrees celsius": ("°C", 1.0),
     "degree celsius": ("°C", 1.0),
     "degrees c": ("°C", 1.0),
+    "degrees": ("°C", 1.0),
+    "degree": ("°C", 1.0),
+    "°f": ("°F", 1.0),
+    "degrees fahrenheit": ("°F", 1.0),
+    "degree fahrenheit": ("°F", 1.0),
+    "degrees f": ("°F", 1.0),
+    "fahrenheit": ("°F", 1.0),
     "mm": ("mm", 1.0),
     "millimetres": ("mm", 1.0),
     "millimeters": ("mm", 1.0),
@@ -40,6 +48,8 @@ _UNIT_ALIASES: Final[dict[str, tuple[str, float]]] = {
     "kilometres per hour": ("m/s", 1 / 3.6),
     "kilometers per hour": ("m/s", 1 / 3.6),
 }
+# Bare degree spellings may also be a wind direction (GHCN unit "degrees").
+_BARE_DEGREES: Final = frozenset({"°", "degree", "degrees"})
 _CLAIM_RE: Final = re.compile(
     r"(?P<num>[-−–]?\d+(?:\.\d+)?)\s*(?P<unit>"
     + "|".join(sorted((re.escape(u) for u in _UNIT_ALIASES), key=len, reverse=True))
@@ -76,6 +86,7 @@ class Claim:
     value: float  # in canonical unit
     unit: str  # canonical
     tolerance: float  # in canonical unit
+    alt_unit: str | None = None  # another input unit the claim may refer to
 
 
 def extract_claims(narrative: str) -> list[Claim]:
@@ -83,7 +94,10 @@ def extract_claims(narrative: str) -> list[Claim]:
     for m in _CLAIM_RE.finditer(narrative):
         unit, factor = _UNIT_ALIASES[m["unit"].lower()]
         number = float(m["num"].replace("−", "-").replace("–", "-"))
-        claims.append(Claim(m.group(0), number * factor, unit, _ROUNDING_TOLERANCE * factor))
+        alt_unit = "degrees" if m["unit"].lower() in _BARE_DEGREES else None
+        claims.append(
+            Claim(m.group(0), number * factor, unit, _ROUNDING_TOLERANCE * factor, alt_unit)
+        )
     return claims
 
 
@@ -115,7 +129,11 @@ def validate_narrative(item: StationDayInput, narrative: str) -> ValidationResul
     # 1. grounding
     claims = extract_claims(narrative)
     for claim in claims:
-        candidates = refs.get(claim.unit, set())
+        if claim.unit == "°F":
+            failed = True
+            issues.append(f"Fahrenheit value '{claim.text}'; narratives must use °C")
+            continue
+        candidates = refs.get(claim.unit, set()) | refs.get(claim.alt_unit or "", set())
         if not any(abs(claim.value - ref) <= claim.tolerance for ref in candidates):
             failed = True
             issues.append(f"unsupported value '{claim.text}' (no matching {claim.unit} input)")

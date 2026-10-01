@@ -80,6 +80,28 @@ def test_rain_on_dry_day_warns_unless_negated(day):
     assert dry.status is ValidationStatus.PASS
 
 
+def test_bare_degrees_are_grounded(day):
+    ok = validate_narrative(day, "A high of 16 degrees and a low of 4 degrees.")
+    assert ok.status is ValidationStatus.PASS, ok.issues
+    wrong = validate_narrative(day, "A high of 21 degrees and a low of 4 degrees.")
+    assert wrong.status is ValidationStatus.FAIL
+    assert "unsupported value '21 degrees'" in wrong.issues[0]
+
+
+def test_bare_degrees_can_be_a_wind_direction(day):
+    windy = day.model_copy(
+        update={"observations": [*day.observations, _obs("WDFG", 270, "degrees", "wind")]}
+    )
+    text = "A high of 16.1°C and a low of 4.3°C, with gusts from 270 degrees."
+    assert validate_narrative(windy, text).status is ValidationStatus.PASS
+
+
+def test_fahrenheit_fails(day):
+    result = validate_narrative(day, "A high of 61°F and a low of 40 degrees Fahrenheit.")
+    assert result.status is ValidationStatus.FAIL
+    assert sum("Fahrenheit value" in i for i in result.issues) == 2
+
+
 def test_claim_extraction_units():
     claims = extract_claims("−3.5°C, 12 mm, 2 cm of snow, 10 m/s, 36 km/h, 5 degrees Celsius")
     assert [(c.unit, round(c.value, 2)) for c in claims] == [
