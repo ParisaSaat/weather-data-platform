@@ -40,7 +40,7 @@ def test_full_pipeline_and_config_only_station_addition(make_ctx, mock_transport
     assert str(end) == "2024-02-24"
     assert (end - start).days == 29
 
-    # elements come from the inventory; values are scaled; WSFG unit-corrected for source C
+    # elements come from the inventory; values are scaled by the readme unit (tenths)
     elements = {r[0] for r in _q(ctx, "select element from marts.dim_elements")}
     assert elements == {"TMAX", "TMIN", "PRCP", "SNOW", "WSFG"}
     [(tmax, gust)] = _q(
@@ -52,7 +52,7 @@ def test_full_pipeline_and_config_only_station_addition(make_ctx, mock_transport
         """,
     )
     assert float(tmax) == pytest.approx(19.5)
-    assert float(gust) == pytest.approx(480 / 36, abs=0.01)
+    assert float(gust) == pytest.approx(18.0)
     # the QA-flagged SNOW value is outside the window here; wide table has a full spine
     assert _q(ctx, "select count(*) from marts.fct_daily_weather") == [(60,)]
 

@@ -36,7 +36,7 @@ def daily_rows(sid: str, start: date, days: int) -> list[str]:
             f"{sid},{d},TMAX,{tmax},,,C,",
             f"{sid},{d},TMIN,{tmin},,,C,",
             f"{sid},{d},PRCP,{(i % 4) * 12},,,C,",
-            f"{sid},{d},WSFG,{400 + (i % 5) * 20},,,C,",
+            f"{sid},{d},WSFG,{100 + (i % 5) * 20},,,C,",
         ]
     # one QA-failed value that must not reach value_clean
     rows.append(f"{sid},{start.strftime('%Y%m%d')},SNOW,9999,,X,C,")

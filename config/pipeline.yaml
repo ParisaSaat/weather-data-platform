@@ -28,15 +28,15 @@ source:
 # -----------------------------------------------------------------------------
 stations:
   - city: Toronto
-    station_id: CA006158731   # TORONTO INTL A (Pearson)
+    station_id: CAN06158731   # TORONTO INTL A (Pearson)
   - city: Montreal
-    station_id: CA007025251   # MONTREAL INTL A (Trudeau)
+    station_id: CAN07025251   # MONTREAL INTL A (Trudeau)
   - city: Vancouver
-    station_id: CA001108395   # VANCOUVER INTL A (YVR)
+    station_id: CAN01108395   # VANCOUVER INTL A (YVR)
   - city: Calgary
-    station_id: CA003031092   # CALGARY INTL A (YYC)
+    station_id: CAN03031092   # CALGARY INTL A (YYC)
   - city: Ottawa
-    station_id: CA006106001   # OTTAWA INT'L (Macdonald-Cartier)
+    station_id: CAN06106001   # OTTAWA INTL A (Macdonald-Cartier)
 
   # Adding a 6th city is a config-only change, e.g.:
   # - city: Edmonton

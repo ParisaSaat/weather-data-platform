@@ -20,9 +20,15 @@ seeds:
       Found by profiling raw distributions; each row documents its evidence. The scale factor
       converts the raw integer to the element's documented canonical unit, so every element
       keeps ONE unit in the marts regardless of source.
+      Currently empty: NOAA's 2026-10 re-release (CA00* -> CAN0* IDs) fixed the
+      Environment Canada wind units this table used to correct.
     config:
       column_types:
+        element: varchar
+        source_flag: varchar
         scale_factor: double
+        unit: varchar
+        evidence: varchar
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
