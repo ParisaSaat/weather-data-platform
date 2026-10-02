@@ -1,3 +1,1 @@
 element,source_flag,scale_factor,unit,evidence
-WSFG,C,0.0277778,m/s,"Environment Canada gusts arrive as tenths of km/h, not the documented tenths of m/s: every value is a multiple of 10, the minimum is 310 (EC's 31 km/h gust-reporting threshold) and the median of 430 would be a 43 m/s (155 km/h) daily gust. NOAA's own bounds check (QFLAG X) rejects genuine events such as the 2022-05-21 Ottawa derecho (1200 = 120 km/h)."
-WDFG,C,10,degrees,"Environment Canada gust directions arrive in tens of degrees (observed range 1-36), not the documented degrees."

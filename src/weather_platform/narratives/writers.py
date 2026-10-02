@@ -36,6 +36,10 @@ class NarrativeWriterError(RuntimeError):
     """Non-retryable failure that affects every batch (bad key, unknown model...)."""
 
 
+class QuotaExhaustedError(RuntimeError):
+    """Still rate-limited (429) after all retries; the remaining batches would be too."""
+
+
 class MalformedResponseError(RuntimeError):
     """One response didn't match the schema; only that batch is lost."""
 
@@ -126,6 +130,8 @@ class GeminiNarrativeWriter:
         try:
             return self._generate(self.prompt.render(batch))
         except errors.APIError as exc:
+            if exc.code == 429:
+                raise QuotaExhaustedError(f"Gemini quota exhausted: {exc}") from exc
             if exc.code in _RETRYABLE_HTTP:
                 raise  # retries exhausted; caller decides whether to continue
             raise NarrativeWriterError(f"Gemini rejected the request ({exc.code}): {exc}") from exc

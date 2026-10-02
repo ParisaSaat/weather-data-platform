@@ -3,7 +3,7 @@
 Incremental models handle most config changes on their own (new stations/elements
 backfill via per-key watermarks; removed ones are trimmed by a post-hook). A few
 settings change the meaning of *already materialised* rows (window length/anchor,
-QA-flag policy). Those are fingerprinted here, and a change triggers a one-off
+QA-flag policy, unit-correction seed). Those are fingerprinted here, and a change triggers a one-off
 --full-refresh so stale history can never linger silently.
 """
 
@@ -14,6 +14,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dbt.cli.main import dbtRunner, dbtRunnerResult
 
@@ -30,6 +31,8 @@ _HISTORY_AFFECTING_VARS = (
     "window_end_date",
     "rejected_qflags",
 )
+# Seeds whose contents change already materialised values.
+_HISTORY_AFFECTING_SEEDS = ("source_unit_corrections.csv",)
 
 
 class DbtRunError(RuntimeError):
@@ -43,8 +46,14 @@ class DbtRunSummary:
     success: bool
 
 
-def history_fingerprint(dbt_vars: dict[str, object]) -> str:
-    relevant = {k: dbt_vars.get(k) for k in _HISTORY_AFFECTING_VARS}
+def history_fingerprint(dbt_vars: dict[str, object], seeds_dir: Path | None = None) -> str:
+    relevant: dict[str, object] = {k: dbt_vars.get(k) for k in _HISTORY_AFFECTING_VARS}
+    if seeds_dir is not None:
+        for name in _HISTORY_AFFECTING_SEEDS:
+            seed = seeds_dir / name
+            relevant[name] = (
+                hashlib.sha256(seed.read_bytes()).hexdigest() if seed.exists() else None
+            )
     return hashlib.sha256(json.dumps(relevant, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -96,11 +105,12 @@ class DbtRunner:
         self.ensure_deps()
         dbt_vars = self.ctx.config.dbt_vars()
 
-        fingerprint = history_fingerprint(dbt_vars)
+        fingerprint = history_fingerprint(dbt_vars, self.project_dir / "seeds")
         previous = _read_state(self.ctx, _FINGERPRINT_KEY)
         if previous is not None and previous != fingerprint and not full_refresh:
             log.warning(
-                "window/QA settings changed since the last build; running with --full-refresh"
+                "window/QA settings or unit corrections changed since the last build; "
+                "running with --full-refresh"
             )
             full_refresh = True
 

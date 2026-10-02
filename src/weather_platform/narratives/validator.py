@@ -50,8 +50,9 @@ _UNIT_ALIASES: Final[dict[str, tuple[str, float]]] = {
 }
 # Bare degree spellings may also be a wind direction (GHCN unit "degrees").
 _BARE_DEGREES: Final = frozenset({"°", "degree", "degrees"})
+# A dash right after a number ("12-25°C", "12 - 25°C") is a range, not a minus sign.
 _CLAIM_RE: Final = re.compile(
-    r"(?P<num>[-−–]?\d+(?:\.\d+)?)\s*(?P<unit>"
+    r"(?P<num>(?:(?<![\d.])(?<![\d.]\s)[-−–])?\d+(?:\.\d+)?)\s*(?P<unit>"
     + "|".join(sorted((re.escape(u) for u in _UNIT_ALIASES), key=len, reverse=True))
     + r")(?![a-z])",
     re.IGNORECASE,

@@ -26,6 +26,7 @@ from weather_platform.narratives.writers import (
     MalformedResponseError,
     NarrativeWriter,
     NarrativeWriterError,
+    QuotaExhaustedError,
 )
 
 log = logging.getLogger(__name__)
@@ -148,6 +149,11 @@ class NarrativeGenerator:
                     result = w.write(batch)
                 except NarrativeWriterError:
                     raise
+                except QuotaExhaustedError:
+                    log.warning("quota exhausted; remaining days stay pending for the next run")
+                    summary.failed += len(batch)
+                    summary.status = "partial"
+                    break
                 except MalformedResponseError:
                     log.exception("batch response was malformed; continuing with the next batch")
                     summary.failed += len(batch)

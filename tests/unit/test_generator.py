@@ -4,9 +4,12 @@ import pytest
 
 from weather_platform.narratives.generator import NarrativeGenerator, RateLimiter, chunked
 from weather_platform.narratives.models import NarrativeItem, StationDayInput, WriterResult
+from weather_platform.narratives.prompts import get_prompt
 from weather_platform.narratives.writers import (
+    GeminiNarrativeWriter,
     MalformedResponseError,
     NarrativeWriterError,
+    QuotaExhaustedError,
     TemplateNarrativeWriter,
 )
 
@@ -114,6 +117,31 @@ def test_malformed_response_skips_only_that_batch():
     assert (summary.written, summary.failed, summary.status) == (3, 4 + 1, "partial")
     [run] = repo.runs.values()
     assert run["status"] == "partial"
+
+
+def test_quota_exhaustion_stops_the_run_as_partial():
+    repo = FakeRepo(_inputs(12))
+    writer = FlakyWriter(fail_on_call=2, error=QuotaExhaustedError)
+    summary = _gen(repo, writer).run()
+    assert writer.calls == 2  # the third batch is never attempted
+    assert (summary.requests, summary.written, summary.failed) == (2, 3, 1 + 4)
+    [run] = repo.runs.values()
+    assert run["status"] == "partial"
+
+
+def test_gemini_429_after_retries_is_quota_exhausted(monkeypatch):
+    from google.genai import errors
+
+    writer = GeminiNarrativeWriter(
+        api_key="x", model="m", prompt=get_prompt("v1"), temperature=0, max_attempts=1
+    )
+
+    def rate_limited(_contents):
+        raise errors.APIError(429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED"}})
+
+    monkeypatch.setattr(writer, "_generate", rate_limited)
+    with pytest.raises(QuotaExhaustedError):
+        writer.write(_inputs(1))
 
 
 def test_fatal_writer_error_aborts_and_records_run():

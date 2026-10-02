@@ -226,7 +226,7 @@ are also supported. With the data as of 2026-10-01 this resolves to
 | Add a city | Only its file is downloaded. The incremental model sees no watermark for it and **backfills its whole window**. Only its days go to the LLM. | No |
 | Remove a city | A post-hook trims its rows from the fact table | No |
 | Include/exclude elements | New pairs backfill via watermark; excluded pairs are trimmed | No |
-| Window anchor/length, QA-flag policy | Changes the meaning of already-built rows. The runner fingerprints these vars and **adds `--full-refresh` automatically**. | Automatic |
+| Window anchor/length, QA-flag policy, unit-correction seed | Changes the meaning of already-built rows. The runner fingerprints these vars and the seed's contents, and **adds `--full-refresh` automatically**. | Automatic |
 | Model or prompt version | Every day becomes eligible for regeneration (tracked per row) | n/a |
 
 These paths are exercised in [`tests/integration/test_pipeline_e2e.py`](tests/integration/test_pipeline_e2e.py).
@@ -391,7 +391,7 @@ surfaced in `marts.rpt_daily_weather_narratives` and `weather report`.
 make check          # ruff + mypy --strict + pytest
 ```
 
-* **pytest (54 tests).** Unit tests cover the readme parser (against the real readme),
+* **pytest (59 tests).** Unit tests cover the readme parser (against the real readme),
   config validation, the downloader (retries, 304s, no partial files), loaders
   (idempotency, rejection), station resolution, the generator (batching, budgets, partial
   and failed batches, rate limiting), prompt rendering and the validator.
@@ -462,8 +462,6 @@ overrides: `GEMINI_API_KEY`, `WEATHER_LLM_PROVIDER`, `WEATHER_LLM_MODEL`,
 * **`station_id … not found in ghcnd-stations.txt`**: NOAA renamed or retired the
   station. Find the current ID with `uv run weather stations search "TORONTO*" --country CA`
   and update `config/pipeline.yaml`.
-* **Existing warehouse after a seed change**: incremental models only reprocess the
-  trailing `incremental_lookback_days`. Run `uv run weather transform --full-refresh`.
 * **HTTP 429 from Gemini**: expected on the free tier. The run backs off and retries; if
   the daily quota is exhausted it ends as `partial`, and the next run resumes.
 * **Different model**: set `WEATHER_LLM_MODEL` (AI Studio lists the models your key can use).

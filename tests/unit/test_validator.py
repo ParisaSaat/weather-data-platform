@@ -102,6 +102,17 @@ def test_fahrenheit_fails(day):
     assert sum("Fahrenheit value" in i for i in result.issues) == 2
 
 
+def test_dash_ranges_are_not_negative_numbers(day):
+    for text in ("Temperatures ranged 4-16°C.", "Temperatures ranged 4 – 16°C."):
+        result = validate_narrative(day, text)
+        assert not any("unsupported" in i for i in result.issues), (text, result.issues)
+    assert [c.value for c in extract_claims("between 12–25°C, down to -5°C, to − 3°C")] == [
+        25.0,
+        -5.0,
+        3.0,
+    ]
+
+
 def test_claim_extraction_units():
     claims = extract_claims("−3.5°C, 12 mm, 2 cm of snow, 10 m/s, 36 km/h, 5 degrees Celsius")
     assert [(c.unit, round(c.value, 2)) for c in claims] == [
