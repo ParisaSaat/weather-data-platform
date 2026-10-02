@@ -62,7 +62,7 @@ weather run --provider fake
 | 4 | Airport stations for the 5 largest metros | [`config/pipeline.yaml`](config/pipeline.yaml) → `stations` |
 | 5 | Station and element selection driven by metadata, not hardcoded | Stations are validated or resolved against `ghcnd-stations.txt` + `ghcnd-inventory.txt`. Elements come from the inventory. Layouts, units and flags are parsed from `readme.txt`. See [Dynamic handling](#dynamic-station-and-element-handling). |
 | 6 | Bulk LLM narratives | [`narratives/`](src/weather_platform/narratives): batched structured-output requests, rate-limited, resumable |
-| 7 | Data quality throughout | [Data quality strategy](#data-quality-strategy): ingestion gates → 75 dbt data tests + unit tests → DQ marts → narrative validation |
+| 7 | Data quality throughout | [Data quality strategy](#data-quality-strategy): ingestion gates → 70 dbt data tests + unit tests → DQ marts → narrative validation |
 | 8 | Reproducible GitHub repo + README | This file. `uv.lock` pins every dependency. CI runs the pipeline end to end offline. |
 | ★ | Bonus: Airflow | [`orchestration/airflow`](orchestration/airflow): DAG + `docker compose` (standalone) |
 | ★ | Bonus: validate narratives against source data | [`validator.py`](src/weather_platform/narratives/validator.py): numeric grounding, coverage and consistency |
@@ -165,7 +165,7 @@ an element or a date.
 ```yaml
 stations:
   - city: Toronto
-    station_id: CA006158731      # pinned: deterministic and auditable
+    station_id: CAN06158731      # pinned: deterministic and auditable
   - city: Edmonton               # or resolved from the metadata by a rule
     match: { country_code: CA, state: AB, name_pattern: "EDMONTON INT*" }
 ```
@@ -173,16 +173,20 @@ stations:
 * **Pinned IDs** are checked against `ghcnd-stations.txt` before anything is downloaded.
   A typo fails fast and points to `weather stations search`.
 * **Match rules** are resolved against `ghcnd-stations.txt` + `ghcnd-inventory.txt` and
-  ranked by the most recent TMAX/TMIN/PRCP coverage. For example, `EDMONTON INT*` has 3
-  candidates, and the rule picks `EDMONTON INTERNATIONAL CS` (still reporting in 2026)
-  over the retired `INT'L A`.
+  ranked by the most recent TMAX/TMIN/PRCP coverage, then the longest record. For example,
+  `EDMONTON INT*` has 3 candidates. Two still report in 2026, and the rule picks
+  `EDMONTON INTERNATIONAL CS` (since 1999) over `INTL A` (since 2012) and the retired
+  `INT'L A`.
 * The resolved list is written to the control table `raw.pipeline_target_stations`. That
   table is **the only way stations enter dbt**: they arrive as data, not as SQL or vars.
   A dbt `relationships` test checks it against the station metadata a second time.
 
 I kept the five stations the brief names pinned, and added `match` for growth. Pinning is
 reproducible. Matching is convenient but could change station when NOAA adds one, so the
-choice is logged and stored alongside the rule that produced it.
+choice is logged and stored alongside the rule that produced it. Pinning also has a cost:
+when NOAA renamed every Canadian station ID ([finding 1](#data-findings)), the pinned IDs
+had to be updated by hand. The validation made that a clear, immediate error rather
+than a silent empty load.
 
 ### Elements come from the inventory and are described by the readme
 
@@ -211,8 +215,9 @@ analysis_window: { anchor: latest_common, lookback_days: 730 }
 
 `latest_common` ends the window on the latest date that *every* target station has
 reported, so all cities cover the same period. `latest_any` and `fixed` (+ `end_date`)
-are also supported. With today's data this resolves to **2022-04-30 → 2024-04-28**
-([why not the last 2 years](#data-findings)).
+are also supported. With the data as of 2026-10-01 this resolves to
+**2024-09-30 → 2026-09-29**. Under NOAA's previous station IDs the same setting resolved to
+2022-04-30 → 2024-04-28 ([finding 1](#data-findings)), with no SQL change either way.
 
 ### What each config change costs
 
@@ -244,31 +249,29 @@ reported without blocking.
 | Intermediate | A single-row window with `start <= end`. Every target station has in-scope elements, which catches a station that stopped reporting before the window. Undocumented elements are flagged. |
 | Marts | **Enforced dbt contracts** on `dim_stations` and `fct_daily_observations`. Relationships. Physical plausibility from a bounds-per-element seed, which catches scaling regressions (a TMAX of 289 means ×0.1 was skipped). TMIN ≤ TMAX. The date spine is complete. |
 | DQ marts | Monthly completeness per station and element against expected days, for configured categories (`temperature`, `precipitation`; event-based series like snow depth are sparse by nature). QA-flagged observations explained with the readme's flag text. Station staleness. |
-| dbt unit tests | Unit and scale derivation from readme text. Scaling, QA rejection and trace handling. Source-specific unit corrections. |
+| dbt unit tests | Unit and scale derivation from readme text. Scaling, QA rejection and trace handling. Source-specific unit corrections (the mechanism stays tested even while the seed is empty). |
 | Narratives | Schema-validated JSON. Ids matched back to inputs; missing or unknown ids are rejected and retried next run. Length bounds. Then the [validator](#validating-narratives-against-the-source-data). |
 
 NOAA-flagged values are **kept** in `fct_daily_observations.value` but excluded from
 `value_clean`, so analysts can see what was rejected and why. Which QFLAGs reject a value
 is itself config (`quality.rejected_qflags`).
 
-Sample `weather report` output:
+Sample `weather report` output (run on 2026-10-01):
 
 ```
-Analysis window: 2022-04-30 -> 2024-04-28 (anchor: latest_common)
+Analysis window: 2024-09-30 -> 2026-09-29 (anchor: latest_common)
 
-city       station_id   name              last obs    days stale   window coverage %
-Calgary    CA003031092  CALGARY INTL A    2024-04-28  885 (STALE)  100.0
-Montreal   CA007025251  MONTREAL INTL A   2024-04-28  885 (STALE)  99.9
-Ottawa     CA006106001  OTTAWA INT'L      2024-04-28  885 (STALE)  100.0
-Toronto    CA006158731  TORONTO INTL A    2024-04-28  885 (STALE)  100.0
-Vancouver  CA001108395  VANCOUVER INTL A  2025-08-24  402 (STALE)  99.9
+city       station_id   name              last obs    days stale  window coverage %
+Calgary    CAN03031092  CALGARY INTL A    2026-09-29  2           100.0
+Montreal   CAN07025251  MONTREAL INTL A   2026-09-29  2           100.0
+Ottawa     CAN06106001  OTTAWA INTL A     2026-09-29  2           100.0
+Toronto    CAN06158731  TORONTO INTL A    2026-09-29  2           100.0
+Vancouver  CAN01108395  VANCOUVER INTL A  2026-09-29  2           99.7
 
 NOAA QA-flagged observations (excluded from value_clean)
 station_id   element  qflag  meaning                            count
-CA003031092  SNWD     I      failed internal consistency check  4
-CA003031092  SNOW     I      failed internal consistency check  2
-CA006106001  WSFG     X      failed bounds check                1
-CA006158731  WSFG     X      failed bounds check                1
+CAN03031092  SNWD     I      failed internal consistency check  4
+CAN03031092  SNOW     I      failed internal consistency check  2
 ```
 
 ---
@@ -276,34 +279,44 @@ CA006158731  WSFG     X      failed bounds check                1
 ## Data findings
 
 Profiling the real files surfaced issues a naïve pipeline would have published silently.
+NOAA also re-released the Canadian data while this project was in progress, which
+tested the pipeline against a real upstream change.
 
-1. **Four of the five specified station IDs stop on 2024-04-28 in GHCN-Daily** (YVR
-   continues to 2025-08-24). "The last two years" therefore can't be hardcoded: the window
-   is resolved from the data (`latest_common`), and `dim_stations.is_stale` raises a
-   warning for each station. Newer IDs exist for some airports (e.g. Calgary
-   `CA003031094 CALGARY INT'L CS`, reporting through 2026) and are one config line away;
-   `weather stations search "CALGARY*" --country CA` lists them. I kept the stations the
-   brief specifies.
+1. **NOAA renamed every Canadian station between 2026-09-30 and 2026-10-01.** All 7,903
+   `CA00…` IDs became `CAN0…`. The network code changed from `0` ("unspecified") to `N`
+   ("National Meteorological or Hydrological Center"), e.g. Toronto Pearson
+   `CA006158731` → `CAN06158731`.
+   * The old `by_station` files are still served but frozen at 2024-04-28 (Vancouver at
+     2025-08-24). Under the old IDs, every station showed as stale and `latest_common`
+     resolved the window to 2022-04-30 → 2024-04-28. The renamed files carry the full
+     history through 2026-09-29.
+   * On the first run after the rename, station validation stopped ingestion before any
+     download: `Toronto: station_id CA006158731 not found in ghcnd-stations.txt`. Updating
+     the five pinned IDs in `config/pipeline.yaml` was the only change needed. No SQL or
+     Python changed, and the window moved to 2024-09-30 → 2026-09-29 on its own.
 
-2. **Environment Canada wind values don't use the units the readme documents.** For
-   source flag `C`:
-   * `WSFG` (peak gust) is in **tenths of km/h**, not tenths of m/s. Every value is a
-     multiple of 10, the minimum is 310 (EC's 31 km/h gust-reporting threshold), and at
-     the documented unit the *median* daily gust would be 155 km/h.
-   * `WDFG` (gust direction) is in **tens of degrees** (observed range 1–36), not degrees.
+2. **The previous release published Environment Canada wind values in undocumented
+   units. The re-release fixed them.** In the old files, for source flag `C`:
+   * `WSFG` (peak gust) was in **tenths of km/h**, not tenths of m/s. Every value was a
+     multiple of 10, the minimum was 310 (EC's 31 km/h gust-reporting threshold), and at
+     the documented unit the *median* daily gust would have been 155 km/h.
+   * `WDFG` (gust direction) was in **tens of degrees** (observed range 1–36), not degrees.
+   * As a knock-on effect, NOAA's own bounds check rejected real events. The 2022-05-21
+     Ontario derecho gusts (120/121 km/h at Ottawa/Toronto) carried QFLAG `X`.
 
-   Both are handled by [`seeds/source_unit_corrections.csv`](dbt/seeds/source_unit_corrections.csv):
-   evidence-documented overrides keyed by (element, source flag) that convert to the
-   element's documented unit, so each element keeps one unit in the marts. The gust
-   plausibility bound (≤ 70 m/s) makes the build fail if the correction is ever lost.
+   I handled this with [`seeds/source_unit_corrections.csv`](dbt/seeds/source_unit_corrections.csv),
+   evidence-documented overrides keyed by (element, source flag). In the renamed files
+   the units match the readme (gusts 8.6–33.6 m/s, directions 10–360°), the derecho
+   reads correctly (33.3/33.6 m/s), and no `X` flags remain.
 
-3. **NOAA's own QA rejects real events because of that unit mismatch.** On 2022-05-21
-   (the Ontario derecho) Ottawa and Toronto reported gusts of 120/121 km/h. Read as m/s,
-   these fail NOAA's bounds check and carry QFLAG `X`. The pipeline respects NOAA flags
-   by default and reports them in `dq_quality_flag_summary`, but this argues for
-   per-source QA exceptions (see improvements).
+   That left the corrections firing on already-correct data. The `WDFG` plausibility
+   bound (0–360°) caught it: 2,639 test failures stopped the build. The `WSFG`
+   over-correction (gusts shrunk ~3.6×) stayed *inside* its bounds and would not have
+   been caught. The seed is now empty, with the mechanism and its unit test kept. The
+   lesson: a correction keyed only on metadata outlives the problem it fixes. Corrections
+   should be conditioned on the evidence that justified them (see improvements).
 
-4. `SNWD` is reported only when snow is on the ground and `WT**` only when an event
+3. `SNWD` is reported only when snow is on the ground and `WT**` only when an event
    occurs, so completeness is monitored per configured category rather than blindly.
 
 ---
@@ -320,14 +333,15 @@ One request per day would burn days of quota. So:
   takes **~92 requests**, and a daily incremental run takes one.
 * **Pacing and retries.** Requests are spaced to `requests_per_minute`. 429/5xx responses
   are retried with exponential backoff and jitter. Non-retryable errors (bad key,
-  unknown model) abort immediately with an actionable message.
+  unknown model) abort immediately with an actionable message. A response that doesn't
+  match the schema costs only its own batch; those days stay pending for the next run.
 * **Budget.** At most `max_requests_per_run` requests; the rest stays pending. Days go
   **most recent first**, so a partial run still delivers the most useful output.
 * **Idempotent and resumable.** Work is derived from the warehouse: a day is pending if it
   has no narrative, or if its `input_hash` (computed in dbt from the exact prompt inputs),
   model, provider or prompt version changed. Each batch is committed as it returns, so a
-  crash loses at most one batch. Re-running is a no-op. When the wind-unit correction
-  changed inputs, only the 2,646 affected days were regenerated.
+  crash loses at most one batch. Re-running is a no-op. When NOAA revises a value, only
+  the affected days are regenerated.
 * **Observability.** `narratives.generation_runs` records pending, requests, written,
   failed, token usage and status (`succeeded | partial | failed`) per run.
 * **Prompts are versioned code** ([`prompts.py`](src/weather_platform/narratives/prompts.py)).
@@ -339,10 +353,11 @@ One request per day would burn days of quota. So:
 An LLM judge is itself unverified, so the primary check is deterministic
 ([`validator.py`](src/weather_platform/narratives/validator.py)):
 
-1. **Grounding (fail).** Every number the narrative states with a unit (°C, mm, cm, m/s,
-   km/h) must match an input value after unit conversion and rounding tolerance. Input
-   values are today's value, the previous day's, the day-over-day change and the diurnal
-   range. A hallucinated or mis-converted number fails.
+1. **Grounding (fail).** Every number the narrative states with a unit (°C, "degrees",
+   mm, cm, m/s, km/h) must match an input value after unit conversion and rounding
+   tolerance. Input values are today's value, the previous day's, the day-over-day change
+   and the diurnal range. A bare "degrees" may also match a wind direction. A
+   hallucinated or mis-converted number fails, and so does any Fahrenheit value.
 2. **Coverage (warn).** The high and low temperatures should be mentioned when present.
 3. **Consistency (warn).** Rain or snow described on a day with 0 mm and no weather-type
    flag, with simple negation handling ("no rain" is fine).
@@ -376,7 +391,7 @@ surfaced in `marts.rpt_daily_weather_narratives` and `weather report`.
 make check          # ruff + mypy --strict + pytest
 ```
 
-* **pytest (50 tests).** Unit tests cover the readme parser (against the real readme),
+* **pytest (54 tests).** Unit tests cover the readme parser (against the real readme),
   config validation, the downloader (retries, 304s, no partial files), loaders
   (idempotency, rejection), station resolution, the generator (batching, budgets, partial
   and failed batches, rate limiting), prompt rendering and the validator.
@@ -384,9 +399,10 @@ make check          # ruff + mypy --strict + pytest
   ETags) drives real ingestion, a **real `dbt build`**, narratives and validation. They
   also cover adding a station by config (incremental backfill, no full refresh) and the
   automatic full refresh when the window changes.
-* **dbt.** 75 data tests + 3 unit tests run on every `weather transform`.
+* **dbt.** 70 data tests + 3 unit tests run on every `weather transform`.
 * **GitHub Actions** runs lint, types and all tests on every PR, plus a live smoke test
-  against real NOAA data (offline writer) on `main`.
+  against real NOAA data (offline writer) on `main`. Mocked tests can't detect an
+  upstream change like the station rename; this job does.
 
 ---
 
@@ -407,13 +423,16 @@ make check          # ruff + mypy --strict + pytest
 
 ## What I would improve with more time
 
-1. **Per-source QA exceptions.** Scope `rejected_qflags` by source/element, so NOAA `X`
-   flags caused by the EC unit mismatch (finding 3) can be reinstated.
+1. **Evidence-conditioned unit corrections.** Apply a correction only while the evidence
+   that justified it still holds (e.g. "every WSFG value is a multiple of 10 and ≥ 310"),
+   and fail the build when it stops holding. Finding 2 showed that a correction keyed
+   only on (element, source flag) silently over-corrects once the source is fixed.
 2. **Automated unit-anomaly detection.** Turn the profiling that found the EC unit issues
    into a test that compares each (element, source) distribution with expected physical
-   ranges, instead of relying on curated corrections.
-3. **Successor-station stitching.** Model station lineage (old → new climate ID) so a city
-   has a continuous series across ID changes.
+   ranges. That catches errors bounds can't, like the 3.6× gust shrinkage.
+3. **Station lineage.** Model ID history (`CA006158731` → `CAN06158731`, and old → new
+   climate IDs) so a rename can be detected and suggested automatically, and a city keeps
+   a continuous series across ID changes.
 4. **Gemini Batch API.** On a paid tier, use the asynchronous Batch API (cheaper, higher
    limits) with request-level idempotency keys.
 5. **LLM-as-judge as a second validation tier** for qualitative claims, sampled, budgeted
@@ -440,6 +459,11 @@ overrides: `GEMINI_API_KEY`, `WEATHER_LLM_PROVIDER`, `WEATHER_LLM_MODEL`,
 ## Troubleshooting
 
 * **`GEMINI_API_KEY is not set`**: add it to `.env`, or run with `--provider fake`.
+* **`station_id … not found in ghcnd-stations.txt`**: NOAA renamed or retired the
+  station. Find the current ID with `uv run weather stations search "TORONTO*" --country CA`
+  and update `config/pipeline.yaml`.
+* **Existing warehouse after a seed change**: incremental models only reprocess the
+  trailing `incremental_lookback_days`. Run `uv run weather transform --full-refresh`.
 * **HTTP 429 from Gemini**: expected on the free tier. The run backs off and retries; if
   the daily quota is exhausted it ends as `partial`, and the next run resumes.
 * **Different model**: set `WEATHER_LLM_MODEL` (AI Studio lists the models your key can use).
